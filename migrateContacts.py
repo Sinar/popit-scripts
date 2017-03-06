@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Created on Tue Feb 28 17:20:57 2017
-
-@author: metamatical
-"""
 
 import requests
 import re
