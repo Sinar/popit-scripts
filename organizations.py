@@ -3,6 +3,7 @@
 # TODO
 # CLI options 
 # --import/--update <filename>
+# --export
 # --verbose
 # --dry-run
 # token
