@@ -15,7 +15,7 @@ from urllib.request import urlopen
 import sys
 
 base_url = "http://api.popit.sinarproject.org"
-token = "Token 3e6a794d84fc00dc613f40e426cbc4f19b69a68e"
+token =  open('token.txt')
 headers = {'Authorization': token}
 
 
