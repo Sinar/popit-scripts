@@ -3,7 +3,7 @@
 """
 Created on Wed Mar 15 16:33:35 2017
 
-@author: metamatical
+@author: kay-wong
 """
 
 
@@ -123,6 +123,7 @@ def getContactPayload(contact):
     for key, value in sorted(contact.items()):
         cd.setdefault(extractType(key), []).append(contact[key])
     
+    #create payload only if value is not null
     payload = [{'type': k, 'value': cd[k][0], 'id': cd[k][1]}  for k in cd.keys() if cd[k][0]]
     return payload
 
@@ -133,7 +134,7 @@ def getLinkPayload(link):
         linko.setdefault(extractType(key), []).append(link[key])
     
     linkNoteMap = {'facebook':'Official Facebook account' , 'wikipedia': 'Wikipedia', 'officialWebsite': 'Official Website'}
-    #create payload only if value is not null
+    #create payload only if url is not null
     payload = [{'note': linkNoteMap[k], 'url': linko[k][0], 'id': linko[k][1]}  for k in linko.keys() if linko[k][0]]
     return payload
 
