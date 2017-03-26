@@ -53,3 +53,6 @@ def memberships(person_id):
     else:
         return None
 
+def cleanText(text):
+    return re.sub(r'[^\w\s]', '', text.lower())
+

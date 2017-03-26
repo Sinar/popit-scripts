@@ -9,19 +9,21 @@ Created on Wed Mar 15 16:33:35 2017
 
 import csv, requests, re, sys
 import pandas as pd
+import utils
+import argparse
+import search_CLI
 
 base_url = "http://api.popit.sinarproject.org"
 token = open('../token.txt')
 headers = {'Authorization': token.read().rstrip()}
 
 
-def clean(s):
-    return re.sub(r'[^\w\s]', '', s.lower())
-
-def personExport(personIDs, csvName):
+def personImport(orgID, csvName):
     '''
-    Generate CSV of person details for all members
+    Generate CSV of person details for all members of an org
     '''
+    personIDs = utils.genCurrentPersonIDs(base_url, orgID)
+    
     headerRow = ['name','birth_date', 'death_date', 'gender','summary', 'biography', 'national_identity', 'image', 'family_name', 'given_name','additional_name','honorific_prefix','honorific_suffix','patronymic_name','sort_name']    
     contactKeys  = ['twitter','email', 'cell', 'voice', 'fax', 'address']
     linkKeys  = ['facebook','wikipedia', 'officialWebsite']
@@ -51,7 +53,7 @@ def personExport(personIDs, csvName):
             links = person.pop('links')
             for l in links:
                 for linkType in ['facebook', 'wikipedia', 'official website']:    
-                    if linkType in clean(l['note']):
+                    if linkType in utils.cleanText(l['note']):
                         person['link_'+ linkType] =   l['url']
                         person['link_'+ linkType + '_id'] =   l['id']
                         break
@@ -60,37 +62,46 @@ def personExport(personIDs, csvName):
         mp_csv.writerow(row)
         
 
- 
-def personImport(csvPath):
+
+                
+def personUpdate(df):
     '''
-        Import data from CSV of person details to Popit
+    Imports data from df of person details to PopitReturns:
     '''
-    df = pd.read_csv(csvPath)
-    
     #addPersons
-    newPersons = df[df['id'].isnull()]
-    addPersons(newPersons)
+    newPersons = df[df['person_id']== ""]
     
-    payloads = generatePayloads(newPersons)
-    payloads.drop('id', axis=1, inplace= True)
+    for i in newPersons.index:
+        person=  newPersons.loc[i]
+        person_id = search_CLI.searchCLI(base_url, person['name'], 'persons', 'name', 'othernames')
+        if person_id:
+            newPersons.is_copy = False
+            #set id of person as id found
+            newPersons.loc[i, 'person_id'] = person_id
+            newPersons.drop(i, axis=0, inplace= True)
     
-    url = base_url + "/en/persons/"
-    for payload in payloads:
-        r = requests.post(url, headers=headers, json= payload)
-     
+    #Add persons        
+    if not newPersons.empty:
+        newPersons = newPersons.drop('person_id', axis=1)
+        payloads = generatePayloads(newPersons)
+        
+        url = base_url + "/en/persons/"
+        for payload in payloads:
+            r = requests.post(url, headers=headers, json= payload)
+        
     #updatePersons
-    df = df.drop(df[df['id'].isnull()].index)
-    
+    df = df.drop(df[df['person_id']== ""].index)
     payloads = generatePayloads(df)
     #Post all payloads
     payloads = pd.Series(payloads)
     payloads.apply(putPayloads)
     
-    
 
 def generatePayloads(df):
     '''
-        Generate complete payloads
+    Generate complete payloads
+    Returns:
+        payloads for entire df
     '''
     contacts = df.filter(regex=r'^contact_', axis=1)
     links = df.filter(regex=r'^link_', axis=1)
@@ -109,25 +120,70 @@ def generatePayloads(df):
     
     return payloads
 
-def putPayloads(payload):
-    personID = payload.pop('id')
-    url = base_url+ "/en/persons/"+ personID
+def generatePayload_row(row):
+    '''
+    Generate complete payloads for a single row
+    Inputs:
+        row: pd.Series object, row containing person details
+    Returns:
+        payload for a single row
+    '''
+    contacts = row.filter(regex=r'^contact_')
+    links = row.filter(regex=r'^link_')
+    rest = row.filter(regex=r'^(?!link_|contact_)')
+    payload = rest.to_dict()
+    #Get contacts and links payloads
     
+    contactP = getContactPayload(contacts)
+    linkP = getContactPayload(links)
+    
+    #Merge all
+    payload['contact_details'] = contactP
+    payload['links'] = linkP
+    
+    return payload
+    
+
+
+def putPayloads(payload):
+    '''
+    Puts complete payloads for a payload entry for a single person to Popit DB
+    Inputs:
+        payload: payload entry for a single person
+    
+    '''
+    personID = payload['person_id']
+    url = base_url+ "/en/persons/"+ personID
+    payload  = dict((k,v) for k,v in payload.items() if v)
     #print(payloads)
     r = requests.put(url, headers=headers, json= payload)
-
-
+    if not r.ok:
+        print(r.content)
+        
 def getContactPayload(contact):
+    '''
+    Generate complete payloads for a contacts dictionary
+    Inputs:
+        contact: dictionary with 'contact_details' prefixes, including id and value columns
+    Returns:
+        payload: contact payload for a single row's contact_details
+    '''
     cd = {}
     #groupby type of contact
     for key, value in sorted(contact.items()):
         cd.setdefault(extractType(key), []).append(contact[key])
-    
     #create payload only if value is not null
     payload = [{'type': k, 'value': cd[k][0], 'id': cd[k][1]}  for k in cd.keys() if cd[k][0]]
     return payload
 
 def getLinkPayload(link):
+    '''
+    Generate complete payloads for a links dictionary
+    Inputs:
+        link: dictionary with 'link' prefixes, including id and value columns
+    Returns:
+        payload: link payload for a single row's links
+    '''
     linko =  {}
     #groupby type of link
     for key, value in sorted(link.items()):
@@ -139,7 +195,15 @@ def getLinkPayload(link):
     return payload
 
 def extractType(k):
+    '''
+    Extracts contact_details/link types
+    Inputs:
+        k: contact_detail/link key 
+        eg. link_facebook, link_wikipedia_id
+    Returns:
+        match: extracted contact_detail/link type
+        eg. facebook, wikipedia
+    '''
     match =re.search(r'(?<=\_).*?(?=(?:\_|$))', k).group()  #match between '_' or till end of str
     return match
-
 
